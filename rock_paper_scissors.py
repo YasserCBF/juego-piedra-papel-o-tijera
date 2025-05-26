@@ -7,12 +7,12 @@ import numpy as np
 # Inicializar MediaPipe para detección de manos
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
-hands = mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.7)
+hands = mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.5)
 
 # Inicializar la captura de video
 cap = cv2.VideoCapture(0)
 if not cap.isOpened():
-    print("Error: No se pudo abrir la camara. Verifica que esté conectada.")
+    print("Error: No se pudo abrir la cámara. Verifica que esté conectada.")
     exit()
 
 # Opciones del juego
@@ -21,7 +21,7 @@ choices = ["Piedra", "Papel", "Tijera"]
 # Variables de estado
 player_score = 0
 ai_score = 0
-countdown = 3
+countdown = 1.5  # Contador reducido a 1.5 segundos
 last_time = time.time()
 play_processed = False
 player_choice = None
@@ -30,6 +30,7 @@ result = None
 last_result_time = 0
 show_instructions = True
 instructions_start_time = time.time()
+player_history = []  # Historial de jugadas del jugador
 
 # Función para detectar el gesto de la mano
 def detect_gesture(landmarks):
@@ -71,6 +72,36 @@ def determine_winner(player_choice, ai_choice):
         ai_score += 1
         return "Perdiste"
 
+# Función para elegir la jugada de la IA basada en el historial
+def ai_choose_move(player_history):
+    if not player_history:
+        # Sesgo inicial: 40% Papel, 35% Tijera, 25% Piedra
+        return random.choices(choices, weights=[0.25, 0.40, 0.35])[0]
+    
+    # Contar frecuencia de jugadas del jugador (últimas 5)
+    history_size = min(len(player_history), 5)
+    recent_moves = player_history[-history_size:]
+    rock_count = recent_moves.count("Piedra")
+    paper_count = recent_moves.count("Papel")
+    scissors_count = recent_moves.count("Tijera")
+    
+    # Calcular probabilidades para contrarrestar
+    total = rock_count + paper_count + scissors_count
+    if total == 0:
+        total = 1
+    weights = [
+        paper_count / total,    # Contrarrestar Piedra con Papel
+        scissors_count / total, # Contrarrestar Papel con Tijera
+        rock_count / total      # Contrarrestar Tijera con Piedra
+    ]
+    
+    # Normalizar pesos y agregar un pequeño factor aleatorio
+    weights = [w + 0.1 for w in weights]  # Evitar ceros
+    total = sum(weights)
+    weights = [w / total for w in weights]
+    
+    return random.choices(choices, weights=weights)[0]
+
 # Función para dibujar texto con fondo
 def draw_text_with_background(frame, text, position, font, scale, text_color, bg_color, thickness):
     text_size, _ = cv2.getTextSize(text, font, scale, thickness)
@@ -88,7 +119,7 @@ cv2.resizeWindow("Piedra, Papel o Tijera", 1280, 720)
 while cap.isOpened():
     ret, frame = cap.read()
     if not ret:
-        print("Error: No se pudo leer el video. Verifica la camara.")
+        print("Error: No se pudo leer el video. Verifica la cámara.")
         break
 
     # Escalar el fotograma para que coincida con el tamaño de la ventana
@@ -125,29 +156,30 @@ while cap.isOpened():
     else:
         show_instructions = False
 
-    # Actualizar contador cada segundo
+    # Actualizar contador cada 0.5 segundos para mayor precisión
     current_time = time.time()
-    if current_time - last_time >= 1:
-        countdown -= 1
+    if current_time - last_time >= 0.5:
+        countdown -= 0.5
         last_time = current_time
         play_processed = False
 
     # Cuando el contador llega a 0, procesar la jugada
-    if countdown == 0:
+    if countdown <= 0:
         if current_player_choice:
             player_choice = current_player_choice
-            ai_choice = random.choice(choices)
+            player_history.append(player_choice)
+            ai_choice = ai_choose_move(player_history)
             result = determine_winner(player_choice, ai_choice)
             last_result_time = current_time
             play_processed = True
         else:
-            result = "No se detecto gesto valido"
+            result = "No se detectó gesto válido"
             last_result_time = current_time
             play_processed = True
-        countdown = 3  # Reiniciar contador
+        countdown = 1.5  # Reiniciar contador
 
     # Dibujar barra de progreso para el contador (más pequeña)
-    bar_width = int((3 - countdown) * (frame.shape[1] - 20) / 3)
+    bar_width = int((1.5 - countdown) * (frame.shape[1] - 20) / 1.5)
     cv2.rectangle(frame, (10, frame.shape[0] - 20), 
                  (10 + bar_width, frame.shape[0] - 10), (0, 255, 0), -1)
     cv2.rectangle(frame, (10, frame.shape[0] - 20), 
@@ -158,16 +190,16 @@ while cap.isOpened():
         cv2.rectangle(frame, (0, 0), (frame.shape[1], frame.shape[0]), (0, 0, 255), 3)
 
     # Mostrar información en la pantalla (textos más pequeños)
-    draw_text_with_background(frame, f"Contador: {countdown}", (10, 30), 
+    draw_text_with_background(frame, f"Contador: {countdown:.1f}", (10, 30), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), (0, 0, 0, 100), 2)
-    draw_text_with_background(frame, "¡Preparate!", (10, 60), 
+    draw_text_with_background(frame, "¡Prepárate!", (10, 60), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), (0, 0, 0, 100), 1)
-    draw_text_with_background(frame, f"Puntaje - YOU: {player_score}  IA: {ai_score}", (10, frame.shape[0] - 50), 
+    draw_text_with_background(frame, f"Puntaje - Tú: {player_score}  IA: {ai_score}", (10, frame.shape[0] - 50), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), (0, 0, 0, 100), 1)
 
     # Mostrar elecciones y resultado
     if player_choice:
-        draw_text_with_background(frame, f"YOU: {player_choice}", (10, 100), 
+        draw_text_with_background(frame, f"Tú: {player_choice}", (10, 100), 
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), (0, 0, 0, 100), 1)
     if ai_choice:
         draw_text_with_background(frame, f"IA: {ai_choice}", (10, 130), 
@@ -189,6 +221,7 @@ while cap.isOpened():
     elif key == ord('r'):
         player_score = 0
         ai_score = 0
+        player_history = []  # Reiniciar historial
 
 # Liberar recursos
 cap.release()
